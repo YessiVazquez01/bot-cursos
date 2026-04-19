@@ -132,8 +132,8 @@ if __name__ == "__main__":
     while True:
         ejecutar_bot()
 
-        print("⏳ Esperando 2 hora...\n")
-        time.sleep(7200)
+        print("⏳ Esperando 1 hora...\n")
+        time.sleep(3600)
 
 def run_bot():
     while True:
