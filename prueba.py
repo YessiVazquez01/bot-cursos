@@ -135,21 +135,29 @@ if __name__ == "__main__":
         print("⏳ Esperando 1 hora...\n")
         time.sleep(3600)
 
+# =========================
+# SERVIDOR + BOT
+# =========================
+
 def run_bot():
     while True:
         ejecutar_bot()
+        print("⏳ Esperando 1 hora...\n")
         time.sleep(3600)
 
-# correr bot en segundo plano
-threading.Thread(target=run_bot).start()
-
-# servidor mínimo (para que Render esté feliz 😄)
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot funcionando")
+        self.wfile.write(b"Bot funcionando 🚀")
 
-port = int(os.environ.get("PORT", 10000))
-server = HTTPServer(("0.0.0.0", port), Handler)
-server.serve_forever()
+if __name__ == "__main__":
+    # iniciar bot en segundo plano
+    threading.Thread(target=run_bot, daemon=True).start()
+
+    # iniciar servidor para Render
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), Handler)
+
+    print(f"🌐 Servidor escuchando en puerto {port}")
+    server.serve_forever()
