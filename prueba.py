@@ -103,7 +103,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot funcionando 🚀")
+        self.wfile.write("Bot funcionando 🚀".encode("utf-8"))
 
 
 def iniciar_servidor():
