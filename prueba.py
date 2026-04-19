@@ -6,6 +6,8 @@ import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
 
 
 # ==============================
@@ -132,3 +134,22 @@ if __name__ == "__main__":
 
         print("⏳ Esperando 2 hora...\n")
         time.sleep(7200)
+
+def run_bot():
+    while True:
+        ejecutar_bot()
+        time.sleep(3600)
+
+# correr bot en segundo plano
+threading.Thread(target=run_bot).start()
+
+# servidor mínimo (para que Render esté feliz 😄)
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot funcionando")
+
+port = int(os.environ.get("PORT", 10000))
+server = HTTPServer(("0.0.0.0", port), Handler)
+server.serve_forever()
