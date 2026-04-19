@@ -18,8 +18,8 @@ URL = "https://capacitaciondocente.educaciontuc.gov.ar/"
 ARCHIVO = "cursos.json"
 
 # Variables de entorno (Render o local)
-TOKEN = os.getenv("8729216683:AAHuZbT2Pj8-XvISSOxS_D3EH8EyvnBi_nY")
-CHAT_ID = os.getenv("1558517150")
+TOKEN = os.getenv("TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
 
 # ==============================
@@ -139,25 +139,27 @@ if __name__ == "__main__":
 # SERVIDOR + BOT
 # =========================
 
-def run_bot():
-    while True:
-        ejecutar_bot()
-        print("⏳ Esperando 1 hora...\n")
-        time.sleep(3600)
-
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"Bot funcionando 🚀")
 
-if __name__ == "__main__":
-    # iniciar bot en segundo plano
-    threading.Thread(target=run_bot, daemon=True).start()
-
-    # iniciar servidor para Render
+def run_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), Handler)
-
     print(f"🌐 Servidor escuchando en puerto {port}")
     server.serve_forever()
+
+def run_bot():
+    while True:
+        ejecutar_bot()
+        print("⏳ Esperando 1 hora...\n")
+        time.sleep(3600)
+
+if __name__ == "__main__":
+    # 🔥 ARRANCA SERVIDOR PRIMERO
+    threading.Thread(target=run_server, daemon=True).start()
+
+    # 🔥 DESPUÉS EL BOT
+    run_bot()
