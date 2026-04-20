@@ -1,133 +1,184 @@
+import requests
+import time
 import json
 import os
-import time
-import requests
-import threading
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from bs4 import BeautifulSoup
-
+import threading
 
 # ==============================
-# CONFIG
+# CONFIGURACIÓN
 # ==============================
-
-URL = "https://capacitaciondocente.educaciontuc.gov.ar/"
-ARCHIVO = "cursos.json"
 
 TOKEN = os.getenv("TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
+URL_CALENDARIO = "https://apicapacitaciones.educaciontuc.edu.ar/api/gestionCapas/calendario"
+
+ARCHIVO_GUARDADO = "cursos_enviados.json"
 
 # ==============================
-# TELEGRAM
-# ==============================
-
-def enviar_telegram(mensaje):
-    if not TOKEN or not CHAT_ID:
-        print("⚠️ TOKEN o CHAT_ID no configurados")
-        return
-
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-
-    params = {
-        "chat_id": CHAT_ID,
-        "text": mensaje
-    }
-
-    requests.get(url, params=params)
-
-
-# ==============================
-# SCRAPING (SIN SELENIUM 🔥)
-# ==============================
-
-def obtener_cursos():
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
-
-    response = requests.get(URL, headers=headers)
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    cursos = []
-
-    elementos = soup.find_all("h5")
-
-    for e in elementos:
-        texto = e.text.strip()
-        if len(texto) > 10:
-            cursos.append(texto)
-
-    return list(set(cursos))
-
-
-# ==============================
-# LOGICA PRINCIPAL
-# ==============================
-
-def ejecutar_bot():
-    print("🔎 Buscando cursos...")
-
-    titulos = obtener_cursos()
-
-    if os.path.exists(ARCHIVO):
-        with open(ARCHIVO, "r", encoding="utf-8") as f:
-            anteriores = json.load(f)
-    else:
-        anteriores = []
-
-    nuevos = [c for c in titulos if c not in anteriores]
-
-    if nuevos:
-        print("🚨 NUEVOS CURSOS:\n")
-
-        mensaje = "🚨 NUEVOS CURSOS:\n\n"
-        for n in nuevos:
-            print("-", n)
-            mensaje += f"- {n}\n"
-
-        enviar_telegram(mensaje)
-
-    else:
-        print("Sin cursos nuevos")
-
-    with open(ARCHIVO, "w", encoding="utf-8") as f:
-        json.dump(titulos, f, ensure_ascii=False, indent=2)
-
-
-# ==============================
-# SERVIDOR PARA RENDER
+# SERVIDOR PARA RENDER (IMPORTANTE)
 # ==============================
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write("Bot funcionando 🚀".encode("utf-8"))
-
+        self.wfile.write(b"Bot funcionando")
 
 def iniciar_servidor():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), Handler)
-    print(f"🌐 Servidor activo en puerto {port}")
+    puerto = 10000
+    server = HTTPServer(("0.0.0.0", puerto), Handler)
+    print(f"🌐 Servidor activo en puerto {puerto}")
     server.serve_forever()
 
+# ==============================
+# UTILIDADES
+# ==============================
+
+def formatear_fecha(fecha_str):
+    if not fecha_str:
+        return "Sin fecha"
+    try:
+        fecha = datetime.strptime(fecha_str, "%Y-%m-%d %H:%M:%S")
+        return fecha.strftime("%d/%m/%Y %H:%M")
+    except:
+        return fecha_str
+
+def cargar_enviados():
+    try:
+        with open(ARCHIVO_GUARDADO, "r") as f:
+            return set(json.load(f))
+    except:
+        return set()
+
+def guardar_enviados(lista):
+    with open(ARCHIVO_GUARDADO, "w") as f:
+        json.dump(list(lista), f)
 
 # ==============================
-# LOOP BOT
+# OBTENER CURSOS PRÓXIMOS
+# ==============================
+
+def obtener_proximos():
+    headers = {
+        "accept": "application/json",
+        "origin": "https://capacitaciondocente.educaciontuc.gov.ar",
+        "referer": "https://capacitaciondocente.educaciontuc.gov.ar/",
+        "user-agent": "Mozilla/5.0"
+    }
+
+    response = requests.get(URL_CALENDARIO, headers=headers)
+
+    if response.status_code != 200:
+        print("❌ Error al obtener datos")
+        return []
+
+    try:
+        data = response.json()
+    except:
+        print("❌ No es JSON")
+        return []
+
+    cursos = []
+
+    for c in data:
+        # Solo cursos que todavía NO abrieron inscripción
+        if c.get("fecha_apertura_preinscripcion") and c.get("nombre"):
+
+            cursos.append({
+                "nombre": c.get("nombre"),
+                "lugar": c.get("lugar"),
+                "modalidad": c.get("modalidad"),
+                "apertura": c.get("fecha_apertura_preinscripcion"),
+                "slug": c.get("slug")
+            })
+
+    print(f"📚 Total próximos encontrados: {len(cursos)}")
+    return cursos
+
+# ==============================
+# ENVIAR A TELEGRAM
+# ==============================
+
+def enviar_telegram(mensaje):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+
+    data = {
+        "chat_id": CHAT_ID,
+        "text": mensaje,
+        "parse_mode": "HTML"
+    }
+
+    response = requests.post(url, data=data)
+
+    print("📡 STATUS TELEGRAM:", response.status_code)
+    print("📩 RESPUESTA TELEGRAM:", response.text)
+
+# ==============================
+# BOT PRINCIPAL
+# ==============================
+
+def ejecutar_bot():
+    print("\n🔎 Buscando cursos...")
+
+    cursos = obtener_proximos()
+    enviados = cargar_enviados()
+
+    nuevos = []
+
+    for c in cursos:
+        identificador = c["nombre"] + str(c["apertura"])
+
+        if identificador not in enviados:
+
+            apertura = formatear_fecha(c["apertura"])
+            link = f"https://capacitaciondocente.educaciontuc.gov.ar/#/capacitacion/{c['slug']}"
+
+            mensaje = f"""
+🟣 <b>PRÓXIMA CAPACITACIÓN</b>
+
+📚 <b>{c['nombre']}</b>
+
+🎓 Modalidad: {c['modalidad']}
+📍 Lugar: {c['lugar']}
+
+🟢 Apertura de inscripción:
+{apertura}
+
+🔗 <a href="{link}">Ver detalles del curso</a>
+"""
+
+            enviar_telegram(mensaje)
+
+            enviados.add(identificador)
+            nuevos.append(c["nombre"])
+
+    guardar_enviados(enviados)
+
+    if nuevos:
+        print(f"✅ Enviados {len(nuevos)} cursos nuevos")
+    else:
+        print("✅ Sin cursos nuevos")
+
+# ==============================
+# LOOP CADA 5 MINUTOS
 # ==============================
 
 def loop_bot():
     while True:
         ejecutar_bot()
-        print("⏳ Esperando 1 hora...\n")
-        time.sleep(3600)
-
+        print("⏳ Esperando 5 minutos...\n")
+        time.sleep(300)
 
 # ==============================
 # MAIN
 # ==============================
 
 if __name__ == "__main__":
-    threading.Thread(target=iniciar_servidor, daemon=True).start()
+    # Servidor para Render
+    threading.Thread(target=iniciar_servidor).start()
+
+    # Ejecutar bot
     loop_bot()
