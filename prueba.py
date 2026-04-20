@@ -33,6 +33,7 @@ def iniciar_servidor():
     server = HTTPServer(("0.0.0.0", puerto), Handler)
     print(f"🌐 Servidor activo en puerto {puerto}")
     server.serve_forever()
+threading.Thread(target=iniciar_servidor).start()
 
 # ==============================
 # UTILIDADES
