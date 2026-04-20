@@ -24,11 +24,12 @@ ARCHIVO_GUARDADO = "cursos_enviados.json"
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        self.send_header("Content-type", "text/html")
         self.end_headers()
         self.wfile.write(b"Bot funcionando")
 
 def iniciar_servidor():
-    puerto = 10000
+    puerto = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", puerto), Handler)
     print(f"🌐 Servidor activo en puerto {puerto}")
     server.serve_forever()
