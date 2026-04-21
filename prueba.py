@@ -18,7 +18,7 @@ URL_CALENDARIO = "https://apicapacitaciones.educaciontuc.edu.ar/api/gestionCapas
 ARCHIVO_GUARDADO = "cursos_enviados.json"
 
 # ==============================
-# SERVIDOR PARA RENDER (IMPORTANTE)
+# SERVIDOR PARA RENDER (OBLIGATORIO)
 # ==============================
 
 class Handler(BaseHTTPRequestHandler):
@@ -28,12 +28,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"Bot funcionando")
 
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
 def iniciar_servidor():
     puerto = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", puerto), Handler)
     print(f"🌐 Servidor activo en puerto {puerto}")
     server.serve_forever()
-threading.Thread(target=iniciar_servidor).start()
 
 # ==============================
 # UTILIDADES
@@ -71,10 +74,14 @@ def obtener_proximos():
         "user-agent": "Mozilla/5.0"
     }
 
-    response = requests.get(URL_CALENDARIO, headers=headers)
+    try:
+        response = requests.get(URL_CALENDARIO, headers=headers, timeout=10)
+    except Exception as e:
+        print("❌ Error de conexión:", e)
+        return []
 
     if response.status_code != 200:
-        print("❌ Error al obtener datos")
+        print("❌ Error HTTP:", response.status_code)
         return []
 
     try:
@@ -85,15 +92,26 @@ def obtener_proximos():
 
     cursos = []
 
-    for c in data:
-        # Solo cursos que todavía NO abrieron inscripción
-        if c.get("fecha_apertura_preinscripcion") and c.get("nombre"):
+    ahora = datetime.now()
 
+    for c in data:
+        apertura = c.get("fecha_apertura_preinscripcion")
+
+        if not apertura:
+            continue
+
+        try:
+            fecha_apertura = datetime.strptime(apertura, "%Y-%m-%d %H:%M:%S")
+        except:
+            continue
+
+        # 🔥 SOLO FUTUROS
+        if fecha_apertura > ahora:
             cursos.append({
                 "nombre": c.get("nombre"),
                 "lugar": c.get("lugar"),
                 "modalidad": c.get("modalidad"),
-                "apertura": c.get("fecha_apertura_preinscripcion"),
+                "apertura": apertura,
                 "slug": c.get("slug")
             })
 
@@ -101,22 +119,28 @@ def obtener_proximos():
     return cursos
 
 # ==============================
-# ENVIAR A TELEGRAM
+# TELEGRAM
 # ==============================
 
 def enviar_telegram(mensaje):
+    if not TOKEN or not CHAT_ID:
+        print("❌ Falta TOKEN o CHAT_ID")
+        return
+
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
     data = {
         "chat_id": CHAT_ID,
         "text": mensaje,
-        "parse_mode": "HTML"
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
     }
 
-    response = requests.post(url, data=data)
-
-    print("📡 STATUS TELEGRAM:", response.status_code)
-    print("📩 RESPUESTA TELEGRAM:", response.text)
+    try:
+        response = requests.post(url, data=data, timeout=10)
+        print("📡 STATUS TELEGRAM:", response.status_code)
+    except Exception as e:
+        print("❌ Error enviando a Telegram:", e)
 
 # ==============================
 # BOT PRINCIPAL
@@ -165,12 +189,16 @@ def ejecutar_bot():
         print("✅ Sin cursos nuevos")
 
 # ==============================
-# LOOP CADA 5 MINUTOS
+# LOOP
 # ==============================
 
 def loop_bot():
     while True:
-        ejecutar_bot()
+        try:
+            ejecutar_bot()
+        except Exception as e:
+            print("❌ Error en el bot:", e)
+
         print("⏳ Esperando 5 minutos...\n")
         time.sleep(300)
 
@@ -179,8 +207,5 @@ def loop_bot():
 # ==============================
 
 if __name__ == "__main__":
-    # Servidor para Render
-    threading.Thread(target=iniciar_servidor).start()
-
-    # Ejecutar bot
+    threading.Thread(target=iniciar_servidor, daemon=True).start()
     loop_bot()
