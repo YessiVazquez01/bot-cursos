@@ -14,11 +14,13 @@ TOKEN = os.getenv("TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
 URL_CALENDARIO = "https://apicapacitaciones.educaciontuc.edu.ar/api/gestionCapas/calendario"
+URL_ACTIVAS = "https://apicapacitaciones.educaciontuc.edu.ar/api/gestionCapas/getCapaActivas"
 
 ARCHIVO_GUARDADO = "cursos_enviados.json"
+ARCHIVO_ESTADO = "estado_inscripcion.json"
 
 # ==============================
-# SERVIDOR PARA RENDER (OBLIGATORIO)
+# SERVIDOR PARA RENDER
 # ==============================
 
 class Handler(BaseHTTPRequestHandler):
@@ -62,6 +64,19 @@ def guardar_enviados(lista):
     with open(ARCHIVO_GUARDADO, "w") as f:
         json.dump(list(lista), f)
 
+# ESTADO DE INSCRIPCIÓN (SEPARADO)
+
+def cargar_estado():
+    try:
+        with open(ARCHIVO_ESTADO, "r") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def guardar_estado(data):
+    with open(ARCHIVO_ESTADO, "w") as f:
+        json.dump(data, f)
+
 # ==============================
 # OBTENER CURSOS PRÓXIMOS
 # ==============================
@@ -91,7 +106,6 @@ def obtener_proximos():
         return []
 
     cursos = []
-
     ahora = datetime.now()
 
     for c in data:
@@ -105,7 +119,6 @@ def obtener_proximos():
         except:
             continue
 
-        # 🔥 SOLO FUTUROS
         if fecha_apertura > ahora:
             cursos.append({
                 "nombre": c.get("nombre"),
@@ -117,6 +130,40 @@ def obtener_proximos():
 
     print(f"📚 Total próximos encontrados: {len(cursos)}")
     return cursos
+
+# ==============================
+# OBTENER CURSOS ACTIVOS
+# ==============================
+
+def obtener_activas():
+    headers = {
+        "accept": "application/json",
+        "origin": "https://capacitaciondocente.educaciontuc.gov.ar",
+        "referer": "https://capacitaciondocente.educaciontuc.gov.ar/",
+        "user-agent": "Mozilla/5.0"
+    }
+
+    try:
+        response = requests.get(URL_ACTIVAS, headers=headers, timeout=10)
+        return response.json()
+    except:
+        print("❌ Error obteniendo activas")
+        return []
+
+def detectar_apertura(cursos, estado):
+    abiertos = []
+
+    for c in cursos:
+        clave = str(c["id"])
+        actual = c.get("inscripcion", 0)
+        previo = estado.get(clave, 0)
+
+        if previo == 0 and actual == 1:
+            abiertos.append(c)
+
+        estado[clave] = actual
+
+    return abiertos
 
 # ==============================
 # TELEGRAM
@@ -142,65 +189,71 @@ def enviar_telegram(mensaje):
     except Exception as e:
         print("❌ Error enviando a Telegram:", e)
 
+def mensaje_apertura(c):
+    link = f"https://capacitaciondocente.educaciontuc.gov.ar/#/capacitacion/{c['slug']}"
+
+    return f"""
+🚨🚨 INSCRIPCIÓN ABIERTA 🚨🚨
+
+📚 <b>{c['nombre']}</b>
+
+🎓 {c.get('modalidad','')}
+📍 {c.get('lugar','')}
+
+⚡ ¡INSCRIBITE YA!
+
+🔗 <a href="{link}">Ir al curso</a>
+"""
+
 # ==============================
-# BOT PRINCIPAL
+# LOOP PRINCIPAL
 # ==============================
 
-def ejecutar_bot():
-    print("\n🔎 Buscando cursos...")
+def loop_bot():
+    estado = cargar_estado()
 
-    cursos = obtener_proximos()
-    enviados = cargar_enviados()
+    while True:
+        try:
+            print("\n🔎 Buscando cursos...")
 
-    nuevos = []
+            # 🟣 PRÓXIMOS
+            proximos = obtener_proximos()
+            enviados = cargar_enviados()
 
-    for c in cursos:
-        identificador = c["nombre"] + str(c["apertura"])
+            for c in proximos:
+                clave = c["nombre"] + str(c["apertura"])
 
-        if identificador not in enviados:
-
-            apertura = formatear_fecha(c["apertura"])
-            link = f"https://capacitaciondocente.educaciontuc.gov.ar/#/capacitacion/{c['slug']}"
-
-            mensaje = f"""
+                if clave not in enviados:
+                    mensaje = f"""
 🟣 <b>PRÓXIMA CAPACITACIÓN</b>
 
 📚 <b>{c['nombre']}</b>
 
-🎓 Modalidad: {c['modalidad']}
-📍 Lugar: {c['lugar']}
+🎓 {c['modalidad']}
+📍 {c['lugar']}
 
-🟢 Apertura de inscripción:
-{apertura}
-
-🔗 <a href="{link}">Ver detalles del curso</a>
+🟢 Apertura:
+{formatear_fecha(c['apertura'])}
 """
+                    enviar_telegram(mensaje)
+                    enviados.add(clave)
 
-            enviar_telegram(mensaje)
+            guardar_enviados(enviados)
 
-            enviados.add(identificador)
-            nuevos.append(c["nombre"])
+            # 🚨 APERTURA REAL
+            activas = obtener_activas()
+            abiertas = detectar_apertura(activas, estado)
 
-    guardar_enviados(enviados)
+            for c in abiertas:
+                enviar_telegram(mensaje_apertura(c))
 
-    if nuevos:
-        print(f"✅ Enviados {len(nuevos)} cursos nuevos")
-    else:
-        print("✅ Sin cursos nuevos")
+            guardar_estado(estado)
 
-# ==============================
-# LOOP
-# ==============================
-
-def loop_bot():
-    while True:
-        try:
-            ejecutar_bot()
         except Exception as e:
-            print("❌ Error en el bot:", e)
+            print("❌ Error:", e)
 
-        print("⏳ Esperando 5 minutos...\n")
-        time.sleep(300)
+        print("⏳ Esperando 30 segundos...\n")
+        time.sleep(30)
 
 # ==============================
 # MAIN
